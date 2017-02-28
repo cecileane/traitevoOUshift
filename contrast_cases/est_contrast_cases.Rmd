@@ -26,7 +26,7 @@ We used the lizard tree from the `phylolm` package and associated trait data on 
 species (just the first trait, which is the first PC axis from a PCA).
 To simulate data according to a model that is biologically plausible,
 we estimated the shift configuration, shift values and covariance parameters
-from orignal lizard data.
+from original lizard data.
 
 
 ```{r,include=FALSE}
@@ -34,6 +34,10 @@ library(l1ou)
 library(phylolm)
 # data(lizard.tree, lizard.traits)
 # lizard <- adjust_data(lizard.tree, lizard.traits[,1])
+```
+
+```{r}
+sessionInfo()$otherPkgs$l1ou$Version
 ```
 
 This trait was analyzed to estimate the shifts in trait evolution using the function
@@ -103,7 +107,7 @@ ss=function(x){
 
 Now to check the mean and variance of the simulated Y values:
 
-```{r}
+```{r, eval=F}
 round(colMeans(Y_table-rep(eModel$mu[,1],each=n_sim),5)) # all 0: good
 convar = apply(Y_table-rep(eModel$mu[,1],each=n_sim), 2, ss)
 round(convar,3) # all about the same
@@ -117,10 +121,10 @@ We consider 4 scenarios for the calculation of contrasts, depending
 on what parameters are known (yes) or unknown (no) for the calculation
 of the inverse square-root of the covariance matrix.
 
-parameter |  1  |  2 (knownalpha)  |  3 () |  4 ()
+parameter | 1: full model known | 2: alpha known | 3: shift config known | 4: tree known
 ----------|-----|-----|-----|-----
-Î²<sub>0</sub>, Î²<sub>1</sub>, ...| yes | no | no | no
-Î± | yes | yes | no | no
+β<sub>0</sub>, β<sub>1</sub>, ...| yes | no | no | no
+α | yes | yes | no | no
 shift config | yes | yes | yes | no
 
 For the tree topology, we assume it known always.
@@ -133,25 +137,26 @@ use Y table, call contrasts table "contrast_table1"
 ```{r,eval=F}
 RE = sqrt_OU_covariance(eModel$tree, alpha=truealpha, 
                         root.model = "OUfixedRoot", # eModel$l1ou.options$root.model,
-                        check.order=F, check.ultrametric=F)
+                        check.order=F, check.ultrametric=F,
+                        normalize.tree.height=T) # needed in l1ou v1.29
 covInverseSqrt  <- t(RE$sqrtInvSigma)
 ```
 
 To check the correctness of this square-root covariance matrix calculation:
 
-```{r}
+```{r, eval=F}
 treeheight = branching.times(eModel$tree)[1] # 1.00000000002
 Vbm = vcv(eModel$tree) # t_ij values. Tree height is 1 here, do d_ij = 2*(1-t_ij)
 Vou = (1-exp(-2*truealpha*Vbm)) * exp(-truealpha*2*(treeheight-Vbm)) / (2*truealpha)
 tmp = covInverseSqrt %*%  Vou %*% t(covInverseSqrt)
-diag(tmp) # all at 1.742289: which is the ratio that found later in convar/sigma2 !!
-all.equal(tmp, diag(n_tips), scale=1) # Mean absolute difference: 0.04463552
-all.equal(tmp/mean(diag(tmp)), diag(n_tips), scale=1) # TRUE
+diag(tmp) # if normalize.tree.height=T was ommitted above, and l1ou v1.29:
+# all 1.742289: ratio found later in convar/sigma2
+all.equal(tmp, diag(n_tips), scale=1) # TRUE
 ```
 
 Now that we can trust the inverse square-root of the covariance matrix,
 we use it to calculate contrasts:
-```{r}
+```{r, eval=F}
 contrast_table1=matrix(nrow=n_sim, ncol=n_tips, data=NA)
 for (i in 1:len) {
     contrast_table1[i,]  = covInverseSqrt%*%(Y_table[i,] - eModel$mu)
@@ -168,23 +173,24 @@ It took around 3 hours.
 ```{r,eval=F,include=T}
 RE = sqrt_OU_covariance(eModel$tree, alpha=truealpha,
                         root.model = "OUfixedRoot",
-                        check.order=F, check.ultrametric=F)
+                        check.order=F, check.ultrametric=F,
+                        normalize.tree.height=T) # needed in l1ou v1.29
 covInverseSqrt  <- t(RE$sqrtInvSigma)
 
 contrast_table2=matrix(nrow=len, ncol=n_tips, data=NA)
-sigma_table2=rep(NA,len)
+sigma2_table2=rep(NA,len)
 mu_table2=matrix(nrow=len, ncol=n_tips, data=NA)
 shift_values2=matrix(nrow=len, ncol=length(shift_config), data=NA)
 for (i in 1:len) {
-  model= fit_OU(lizard$tree, Y_table[i,], shift_config,
+  model= fit_OU(eModel$tree, Y_table[i,], shift_config,
                 alpha.upper=truealpha, alpha.lower=truealpha, alpha.starting.value=truealpha)
   # the line above is to fix alpha to the known value
- sigma_table2[i] = model$sigma2
+ sigma2_table2[i] = model$sigma2
  shift_values2[i,]=model$shift.values
  mu_table2[i,]=model$mu
   contrast_table2[i,]  <-  covInverseSqrt%*%(Y_table[i,] - model$mu)
 }
-save(sigma_table2,file="knownalpha_sigma2.RData")
+save(sigma2_table2,file="knownalpha_sigma2.RData")
 save(contrast_table2,file="knownalpha_contrast.RData")
 save(mu_table2,file="knownalpha_mu.RData")
 save(shift_values2,file="knownalpha_shiftvalues.RData")
@@ -240,13 +246,13 @@ mu_table4 = matrix(nrow=n_sim, ncol=n_tips, data=NA)
 shift_values4 = vector(mode = "list", length = n_sim)
 
 for (i in 1:n_sim) {
-  model= estimate_shift_configuration(lizard$tree, Y_table[i,])
+  model= estimate_shift_configuration(eModel$tree, Y_table[i,])
   vectorOfShift[[i]] =model$shift.configuration
   alpha_table4[i] = model$alpha
   sigma_table4[i] = model$sigma2
   shift_values4[[i]]=model$shift.values
   mu_table4[i,]=model$mu
-  RE = sqrt_OU_covariance(lizard$tree ,alpha=model$alpha,
+  RE = sqrt_OU_covariance(eModel$tree ,alpha=model$alpha,
                           root.model = "OUfixedRoot",
                           check.order=FALSE, check.ultrametric=FALSE)
   covInverseSqrt  <- t(RE$sqrtInvSigma)
@@ -272,13 +278,12 @@ max(abs(colMeans(contrast_table1))) # 0.002361408
 round(colMeans(contrast_table1),5)
 convar=apply(contrast_table1,2,ss)
 round(convar,3)
-mean(convar) # 0.1089751
+mean(convar) # 0.06254707
 sigma2 # 0.06251866
-0.1089751/0.06251866 # 1.743081
+0.1089751/0.06251866 # 1.743081. l1ou v1.29 without normalize.tree.height: mean(convar) was 0.1089751
 ```
-Mean of contrasts are close to zero but the variance of contrasts is not equal to `sigma2`.
-
-No, does not work again!
+Mean of contrasts are close to zero and the
+variance of contrasts is roughly equal to `sigma2`.
 
 ## scenario 2: beta unknown
 
