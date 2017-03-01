@@ -216,7 +216,8 @@ for (i in 1:len) {
   mu_table3[i,]=model$mu
   RE = sqrt_OU_covariance(eModel$tree, alpha=model$alpha, # alpha estimated here
                           root.model = "OUfixedRoot",
-                          check.order=F, check.ultrametric=F)
+                          check.order=F, check.ultrametric=F,
+                          normalize.tree.height=T) # needed in l1ou v1.29
   contrast_table3[i,] <-  t(RE$sqrtInvSigma) %*%(Y_table[i,] - model$mu)
 }
 save(contrast_table3,file="unknownalpha_contrast.RData")
@@ -241,7 +242,7 @@ Y_table=Y_table[1:n_sim,]
 contrast_table4=matrix(nrow=n_sim, ncol=n_tips, data=NA)
 vectorOfShift <- vector(mode = "list", length = n_sim)
 alpha_table4  = rep(NA,n_sim)
-sigma_table4 = rep(NA,n_sim)
+sigma2_table4 = rep(NA,n_sim)
 mu_table4 = matrix(nrow=n_sim, ncol=n_tips, data=NA)
 shift_values4 = vector(mode = "list", length = n_sim)
 
@@ -249,18 +250,19 @@ for (i in 1:n_sim) {
   model= estimate_shift_configuration(eModel$tree, Y_table[i,])
   vectorOfShift[[i]] =model$shift.configuration
   alpha_table4[i] = model$alpha
-  sigma_table4[i] = model$sigma2
+  sigma2_table4[i] = model$sigma2
   shift_values4[[i]]=model$shift.values
   mu_table4[i,]=model$mu
   RE = sqrt_OU_covariance(eModel$tree ,alpha=model$alpha,
                           root.model = "OUfixedRoot",
-                          check.order=FALSE, check.ultrametric=FALSE)
+                          check.order=FALSE, check.ultrametric=FALSE,
+                          normalize.tree.height=T) # needed in l1ou v1.29
   covInverseSqrt  <- t(RE$sqrtInvSigma)
   contrast_table4[i,] <-  covInverseSqrt%*%(Y_table[i,] - model$mu)
 }
 save(contrast_table4,file="unknownconfig_contrast.RData")
 save(alpha_table4, file="unknownconfig_alpha.RData")
-save(sigma_table4,file="unknownconfig_sigma2.RData")
+save(sigma2_table4,file="unknownconfig_sigma2.RData")
 save(mu_table4,file="unknownconfig_mu.RData")
 save(shift_values4,file="unknownconfig_shiftvalues.RData")
 save(vectorOfShift,file="unknownconfig_shifts.RData")
@@ -290,19 +292,33 @@ variance of contrasts is roughly equal to `sigma2`.
 but known alpha and known shift configuration
 
 ```{r}
-load("~/R/traitevoOUshift/contrast_cases/knownalpha_contrast.RData")
-load("~/R/traitevoOUshift/contrast_cases/knownalpha_sigma2.RData")
-load("~/R/traitevoOUshift/contrast_cases/knownalpha_shiftvalues.RData")
-load("~/R/traitevoOUshift/contrast_cases/knownalpha_mu.RData")
+load("knownalpha_contrast.RData")
+load("knownalpha_sigma2.RData")
+load("knownalpha_shiftvalues.RData")
+load("knownalpha_mu.RData")
 head(colMeans(contrast_table2)) 
-max(abs(colMeans(contrast_table2)))
-round(colMeans(contrast_table2),5)
+max(abs(colMeans(contrast_table2))) # 0.001775369: good
+round(colMeans(contrast_table2),5)  # last one: 0
 convar=apply(contrast_table2,2,ss)
-hist(convar)
-round(convar,3)
-mean(convar)
-sigma2
-#Check which contrasts are extremely different from 0
+hist(convar, plot=FALSE)
+#breaks: 0 .01 .02 .03 .04 .05 .06 .07
+#counts:  3   5   1   0   2   10  79
+# the 2 contrasts in the .04-.05 range have variance: 0.045 (#38) and 0.049 (#66)
+round(convar,3) # last one: exact 0: all last contrasts are 0
+smallvar.id = which(convar<0.035)
+length(smallvar.id) # 9: 8 internal nodes + root edge. note: 8 shifts...
+smallvar.id                  #    7   16   28   37   39   49   59   82  100
+round(convar[smallvar.id],3) # .012 .007 .013 .004 .028 .011 .018 .014 .000
+mean(convar[which(convar>0.035)]) # 0.06136439: a bit smallish, but good. 0.06168889 if #38 & #66 are excluded.
+sigma2 # 0.06251866
+```
+
+plotting the nodes will small contrast variance on the tree:
+```{r}
+plot(eModel$tree, no.margin=T, show.tip.label=F, root.edge=T)
+edgelabels("", shift_config, pch=16, frame="n")
+nodelabels(101:199, 101:199, cex=0.5, frame="n")
+nodelabels(round(convar[smallvar.id],3), smallvar.id+n_tips)
 ```
 
 ## scenario 3: alpha and beta unknown
